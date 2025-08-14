@@ -45,5 +45,18 @@ bot.on('polling_error', (error) => {
   console.error('Polling error:', error);
 });
 
+// Graceful shutdown handling
+process.on('SIGINT', () => {
+  console.log('🛑 Bot shutting down gracefully...');
+  bot.stopPolling();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('🛑 Bot shutting down gracefully...');
+  bot.stopPolling();
+  process.exit(0);
+});
+
 console.log('🤖 Telegram Subscription Bot started successfully!');
-console.log('Bot is running on Railway...')
+console.log('Bot is running on Render...');
