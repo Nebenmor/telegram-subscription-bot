@@ -1,0 +1,25 @@
+{
+  "name": "telegram-subscription-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for managing group subscriptions",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js",
+    "dev": "nodemon src/bot.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^0.66.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "subscription"
+  ],
+  "author": "Anthony Nebenmor",
+  "license": "MIT"
+}
