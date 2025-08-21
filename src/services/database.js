@@ -1,7 +1,7 @@
-const fs = require('fs').promises;
-const path = require('path');
+const fs = require("fs").promises;
+const path = require("path");
 
-const DB_PATH = path.join(__dirname, '../../data/database.json');
+const DB_PATH = path.join(__dirname, "../../data/database.json");
 
 class Database {
   constructor() {
@@ -12,16 +12,16 @@ class Database {
   async init() {
     try {
       await fs.mkdir(path.dirname(DB_PATH), { recursive: true });
-      
+
       try {
-        const data = await fs.readFile(DB_PATH, 'utf8');
+        const data = await fs.readFile(DB_PATH, "utf8");
         this.data = JSON.parse(data);
       } catch (error) {
         this.data = { groups: {} };
         await this.save();
       }
     } catch (error) {
-      console.error('Database initialization error:', error);
+      console.error("Database initialization error:", error);
       this.data = { groups: {} };
     }
   }
@@ -30,7 +30,7 @@ class Database {
     try {
       await fs.writeFile(DB_PATH, JSON.stringify(this.data, null, 2));
     } catch (error) {
-      console.error('Database save error:', error);
+      console.error("Database save error:", error);
     }
   }
 
@@ -40,14 +40,14 @@ class Database {
       this.data.groups[groupId] = {
         adminId,
         config: {
-          bankName: '',
-          accountName: '',
-          accountNumber: '',
-          price: ''
+          bankName: "",
+          accountName: "",
+          accountNumber: "",
+          price: "",
         },
         isSetupComplete: false,
         users: {},
-        setupStep: null
+        setupStep: null,
       };
     }
     return this.save();
@@ -87,13 +87,14 @@ class Database {
     const group = this.data.groups[groupId];
     if (group) {
       const joinDate = new Date().toISOString();
-      const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-      
+      //   const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const expiryDate = new Date(Date.now() + 2 * 60 * 1000).toISOString();
+
       group.users[userId] = {
         username,
         joinDate,
         expiryDate,
-        isActive: true
+        isActive: true,
       };
       return this.save();
     }
@@ -143,11 +144,11 @@ class Database {
 
   markUpdateProcessed(updateId) {
     this.processedUpdates.add(updateId);
-    
+
     // Clean old update IDs to prevent memory leaks
     if (this.processedUpdates.size > 1000) {
       const oldIds = Array.from(this.processedUpdates).slice(0, 500);
-      oldIds.forEach(id => this.processedUpdates.delete(id));
+      oldIds.forEach((id) => this.processedUpdates.delete(id));
     }
   }
 }
