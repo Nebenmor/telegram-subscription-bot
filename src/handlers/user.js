@@ -4,17 +4,16 @@ const { MESSAGES, KEYBOARDS } = require("../utils/constants");
 class UserHandler {
   constructor(bot) {
     this.bot = bot;
+    this.userSessions = new Map(); // Track user selection sessions
   }
 
   async handleStart(msg) {
     const userId = msg.from.id;
 
     // Check if user is admin
-    const isAdmin = Object.values(database.data.groups).some(
-      (group) => group.adminId === userId
-    );
+    const adminGroups = database.getGroupsByAdmin(userId);
 
-    if (isAdmin) {
+    if (adminGroups.length > 0) {
       return this.bot.sendMessage(userId, MESSAGES.ADMIN_WELCOME);
     }
 
@@ -25,71 +24,107 @@ class UserHandler {
   async showSubscriptionOptions(userId) {
     try {
       // Get all configured groups
-      const configuredGroups = Object.entries(database.data.groups)
-        .filter(([, group]) => group.isSetupComplete)
-        .map(([groupId, group]) => ({ groupId, ...group }));
+      const configuredGroups = database.getConfiguredGroups();
 
       if (configuredGroups.length === 0) {
-        return this.bot.sendMessage(
-          userId,
-          "❌ No subscription services are currently available."
-        );
+        return this.bot.sendMessage(userId, MESSAGES.NO_GROUPS_AVAILABLE);
       }
 
-      // For now, show the first available group (single admin support)
-      // In future versions, this could be expanded for multiple group selection
-      const group = configuredGroups[0];
-      await this.showPaymentDetails(userId, group.groupId);
+      // Show group selection menu
+      await this.bot.sendMessage(
+        userId,
+        MESSAGES.USER_WELCOME,
+        KEYBOARDS.GROUP_SELECTION(configuredGroups)
+      );
     } catch (error) {
       console.error("Show subscription options error:", error);
       await this.bot.sendMessage(userId, MESSAGES.ERROR);
     }
   }
 
-  async showPaymentDetails(userId, groupId) {
+  async handleGroupSelection(query) {
+    const userId = query.from.id;
+    const groupId = query.data.replace("select_group_", "");
+
+    try {
+      const group = database.getGroup(groupId);
+
+      if (!group || !group.isSetupComplete) {
+        await this.bot.answerCallbackQuery(query.id, {
+          text: "This group is not available",
+        });
+        return;
+      }
+
+      // Store user's selected group
+      this.userSessions.set(userId, { selectedGroupId: groupId });
+
+      // Show payment details for selected group
+      await this.showPaymentDetails(
+        query.message.chat.id,
+        query.message.message_id,
+        groupId
+      );
+
+      await this.bot.answerCallbackQuery(query.id);
+    } catch (error) {
+      console.error("Group selection error:", error);
+      await this.bot.answerCallbackQuery(query.id, {
+        text: "Error selecting group",
+      });
+    }
+  }
+
+  async showPaymentDetails(chatId, messageId, groupId) {
     try {
       const group = database.getGroup(groupId);
 
       if (!group?.isSetupComplete) {
-        return this.bot.sendMessage(userId, MESSAGES.SETUP_INCOMPLETE);
+        return this.bot.editMessageText(MESSAGES.SETUP_INCOMPLETE, {
+          chat_id: chatId,
+          message_id: messageId,
+        });
       }
 
-      const config = group.config;
-      const paymentText = `${MESSAGES.USER_WELCOME}
+      const paymentText = MESSAGES.PAYMENT_DETAILS(
+        group.groupName,
+        group.config
+      );
 
-🏦 **Bank Details:**
-• Bank: ${config.bankName}
-• Account Name: ${config.accountName}  
-• Account Number: ${config.accountNumber}
-• Amount: ${config.price}
-
-📱 **Instructions:**
-1. Make payment to the above account
-2. Take a screenshot of your receipt
-3. Upload the receipt here
-4. Click "I have made payment" button
-
-⚠️ **Important:** Upload your payment receipt before clicking the confirmation button.`;
-
-      await this.bot.sendMessage(userId, paymentText, {
+      await this.bot.editMessageText(paymentText, {
+        chat_id: chatId,
+        message_id: messageId,
         parse_mode: "Markdown",
-        ...KEYBOARDS.PAYMENT_CONFIRM,
+        ...KEYBOARDS.PAYMENT_CONFIRM(groupId),
       });
     } catch (error) {
       console.error("Show payment details error:", error);
-      await this.bot.sendMessage(userId, MESSAGES.ERROR);
+      await this.bot.sendMessage(chatId, MESSAGES.ERROR);
     }
   }
 
   async handlePaymentReceipt(msg) {
     const userId = msg.from.id;
+    const userSession = this.userSessions.get(userId);
 
     try {
+      if (!userSession?.selectedGroupId) {
+        return this.bot.sendMessage(
+          userId,
+          "Please select a group first using /start"
+        );
+      }
+
+      const group = database.getGroup(userSession.selectedGroupId);
+
       // Acknowledge receipt upload
       await this.bot.sendMessage(
         userId,
-        '📄 **Receipt received!**\n\nPlease click the "I have made payment" button to confirm your payment.',
-        KEYBOARDS.PAYMENT_CONFIRM
+        `📄 **Receipt received for ${group.groupName}!**\n\nPlease click the "I have made payment" button to confirm your payment.`,
+        {
+          parse_mode: "Markdown",
+          ...KEYBOARDS.PAYMENT_CONFIRM(userSession.selectedGroupId),
+        }
       );
     } catch (error) {
       console.error("Handle payment receipt error:", error);
@@ -98,8 +133,17 @@ class UserHandler {
 
   async handlePaymentConfirmation(query) {
     const userId = query.from.id;
+    const groupId = query.data.replace("confirm_payment_", "");
 
     try {
+      const group = database.getGroup(groupId);
+
+      if (!group) {
+        return this.bot.answerCallbackQuery(query.id, {
+          text: "Group not found",
+        });
+      }
+
       // Get user details
       const userInfo = query.from;
       const userDetails = {
@@ -109,20 +153,10 @@ class UserHandler {
           : `User ${userId}`,
         firstName: userInfo.first_name || "",
         lastName: userInfo.last_name || "",
+        groupId: groupId,
+        groupName: group.groupName,
       };
 
-      // Find the configured group (single admin support)
-      const configuredGroup = Object.entries(database.data.groups).find(
-        ([, group]) => group.isSetupComplete
-      );
-
-      if (!configuredGroup) {
-        return this.bot.answerCallbackQuery(query.id, {
-          text: "Service not available",
-        });
-      }
-
-      const [groupId, group] = configuredGroup;
       const adminId = group.adminId;
 
       // Notify admin
@@ -134,13 +168,19 @@ class UserHandler {
       await this.bot.editMessageText(MESSAGES.PAYMENT_CONFIRMED, {
         chat_id: query.message.chat.id,
         message_id: query.message.message_id,
+        ...KEYBOARDS.BACK_TO_GROUPS,
       });
 
       await this.bot.answerCallbackQuery(query.id, {
         text: "Payment confirmed!",
       });
 
-      console.log(`💳 Payment confirmation from user ${userDetails.username}`);
+      // Clear user session
+      this.userSessions.delete(userId);
+
+      console.log(
+        `💳 Payment confirmation from user ${userDetails.username} for group ${group.groupName}`
+      );
     } catch (error) {
       console.error("Payment confirmation error:", error);
       await this.bot.answerCallbackQuery(query.id, {
@@ -149,15 +189,52 @@ class UserHandler {
     }
   }
 
+  async handleBackToGroups(query) {
+    const userId = query.from.id;
+
+    try {
+      // Clear user session
+      this.userSessions.delete(userId);
+
+      // Show group selection again
+      const configuredGroups = database.getConfiguredGroups();
+
+      if (configuredGroups.length === 0) {
+        await this.bot.editMessageText(MESSAGES.NO_GROUPS_AVAILABLE, {
+          chat_id: query.message.chat.id,
+          message_id: query.message.message_id,
+        });
+      } else {
+        await this.bot.editMessageText(MESSAGES.USER_WELCOME, {
+          chat_id: query.message.chat.id,
+          message_id: query.message.message_id,
+          ...KEYBOARDS.GROUP_SELECTION(configuredGroups),
+        });
+      }
+
+      await this.bot.answerCallbackQuery(query.id);
+    } catch (error) {
+      console.error("Back to groups error:", error);
+      await this.bot.answerCallbackQuery(query.id, {
+        text: "Error loading groups",
+      });
+    }
+  }
+
   async handleMessage(msg) {
     const userId = msg.from.id;
 
     // Check if user is admin in setup mode
-    const adminGroup = database.getGroupByAdmin(userId);
-    if (adminGroup && !adminGroup.isSetupComplete) {
-      const AdminHandler = require("./admin");
-      const adminHandler = new AdminHandler(this.bot);
-      return adminHandler.handleSetupMessage(msg);
+    const adminGroups = database.getGroupsByAdmin(userId);
+    if (adminGroups.length > 0) {
+      const incompleteGroup = adminGroups.find(
+        (group) => !group.isSetupComplete && group.setupStep
+      );
+      if (incompleteGroup) {
+        const AdminHandler = require("./admin");
+        const adminHandler = new AdminHandler(this.bot);
+        return adminHandler.handleSetupMessage(msg, incompleteGroup.groupId);
+      }
     }
 
     // Handle photo/document uploads as payment receipts
@@ -183,6 +260,28 @@ class UserHandler {
       userId,
       "👋 Hi! Send /start to see subscription options or upload your payment receipt."
     );
+  }
+
+  // Handle callback queries
+  async handleCallback(query) {
+    const data = query.data;
+
+    if (data.startsWith("select_group_")) {
+      return this.handleGroupSelection(query);
+    }
+
+    if (data.startsWith("confirm_payment_")) {
+      return this.handlePaymentConfirmation(query);
+    }
+
+    if (data === "back_to_groups") {
+      return this.handleBackToGroups(query);
+    }
+
+    // Unknown callback
+    await this.bot.answerCallbackQuery(query.id, {
+      text: "Unknown action",
+    });
   }
 }
 

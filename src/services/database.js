@@ -35,10 +35,11 @@ class Database {
   }
 
   // Group operations
-  createGroup(groupId, adminId) {
+  createGroup(groupId, adminId, groupName = null) {
     if (!this.data.groups[groupId]) {
       this.data.groups[groupId] = {
         adminId,
+        groupName: groupName || `Group ${groupId}`,
         config: {
           bankName: "",
           accountName: "",
@@ -65,6 +66,14 @@ class Database {
     }
   }
 
+  updateGroupName(groupId, groupName) {
+    const group = this.data.groups[groupId];
+    if (group) {
+      group.groupName = groupName;
+      return this.save();
+    }
+  }
+
   setSetupComplete(groupId, complete = true) {
     const group = this.data.groups[groupId];
     if (group) {
@@ -87,8 +96,8 @@ class Database {
     const group = this.data.groups[groupId];
     if (group) {
       const joinDate = new Date().toISOString();
-      //   const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-      const expiryDate = new Date(Date.now() + 2 * 60 * 1000).toISOString();
+      // For testing: 2 minutes, for production: 30 days
+      const expiryDate = new Date(Date.now() + (process.env.TEST_MODE === 'true' ? 2 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000)).toISOString();
 
       group.users[userId] = {
         username,
@@ -129,12 +138,33 @@ class Database {
     return expired;
   }
 
-  // Find group by admin ID
+  // Find all groups by admin ID (MULTI-GROUP SUPPORT)
+  getGroupsByAdmin(adminId) {
+    return Object.entries(this.data.groups)
+      .filter(([, group]) => group.adminId === adminId)
+      .map(([groupId, group]) => ({ groupId, ...group }));
+  }
+
+  // Find group by admin ID (backward compatibility - returns first group)
   getGroupByAdmin(adminId) {
-    const entry = Object.entries(this.data.groups).find(
-      ([, group]) => group.adminId === adminId
-    );
-    return entry ? { groupId: entry[0], ...entry[1] } : null;
+    const groups = this.getGroupsByAdmin(adminId);
+    return groups.length > 0 ? groups[0] : null;
+  }
+
+  // Get all configured groups (for user selection)
+  getConfiguredGroups() {
+    return Object.entries(this.data.groups)
+      .filter(([, group]) => group.isSetupComplete)
+      .map(([groupId, group]) => ({ groupId, ...group }));
+  }
+
+  // Get groups by admin with setup status
+  getAdminGroupsWithStatus(adminId) {
+    return this.getGroupsByAdmin(adminId).map(group => ({
+      ...group,
+      userCount: Object.keys(group.users || {}).length,
+      activeUsers: Object.values(group.users || {}).filter(user => user.isActive).length
+    }));
   }
 
   // Duplicate message prevention
