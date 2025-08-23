@@ -27,6 +27,9 @@ class SubscriptionBot {
 
     // Initialize scheduler
     this.scheduler = new Scheduler(this.bot);
+
+    // Track processed updates to prevent duplicates
+    this.processedUpdates = new Set();
   }
 
   validateEnvironment() {
@@ -150,7 +153,7 @@ class SubscriptionBot {
         const info = await this.bot.getWebHookInfo();
         res.json(info);
       } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: error?.message });
       }
     });
   }
@@ -159,9 +162,17 @@ class SubscriptionBot {
     // Prevent duplicate message processing
     this.bot.on("message", async (msg) => {
       try {
+        const updateId = `msg_${msg?.message_id}_${msg?.date}`;
+
         // Skip if already processed
-        if (database.isUpdateProcessed(msg.message_id)) return;
-        database.markUpdateProcessed(msg.message_id);
+        if (this.processedUpdates.has(updateId)) return;
+        this.processedUpdates.add(updateId);
+
+        // Clean up old processed updates (keep last 1000)
+        if (this.processedUpdates.size > 1000) {
+          const oldEntries = Array.from(this.processedUpdates).slice(0, 500);
+          oldEntries.forEach((entry) => this.processedUpdates.delete(entry));
+        }
 
         await this.handleMessage(msg);
       } catch (error) {
@@ -172,9 +183,11 @@ class SubscriptionBot {
     // Callback query handler
     this.bot.on("callback_query", async (query) => {
       try {
+        const updateId = `query_${query?.id}`;
+
         // Skip if already processed
-        if (database.isUpdateProcessed(query.id)) return;
-        database.markUpdateProcessed(query.id);
+        if (this.processedUpdates.has(updateId)) return;
+        this.processedUpdates.add(updateId);
 
         await this.handleCallbackQuery(query);
       } catch (error) {
@@ -224,25 +237,28 @@ class SubscriptionBot {
   }
 
   async handleMessage(msg) {
-    const chatType = msg.chat?.type;
-    const userId = msg.from?.id;
+    const chatType = msg?.chat?.type;
+    const userId = msg?.from?.id;
 
-    if (!userId) return;
+    if (!userId) {
+      console.warn("Message received without user ID");
+      return;
+    }
 
     try {
       // Handle group events
       if (chatType !== "private") {
-        if (msg.new_chat_members) {
+        if (msg?.new_chat_members) {
           return this.groupHandler.handleNewChatMember(msg);
         }
-        if (msg.left_chat_member) {
+        if (msg?.left_chat_member) {
           return this.groupHandler.handleLeftChatMember(msg);
         }
         return; // Ignore other group messages
       }
 
       // Handle private messages
-      const text = msg.text?.toLowerCase();
+      const text = msg?.text?.toLowerCase();
 
       // Admin commands
       if (text === "/setup" && this.adminHandler.isAdmin(userId)) {
@@ -275,31 +291,22 @@ class SubscriptionBot {
   }
 
   async handleCallbackQuery(query) {
-    const data = query.data;
-    const userId = query.from?.id;
+    const data = query?.data;
+    const userId = query?.from?.id;
 
-    if (!userId || !data) return;
+    if (!userId || !data) {
+      console.warn("Callback query received without user ID or data");
+      return;
+    }
 
     try {
       // Route admin callbacks
-      if (
-        data.startsWith("setup_group_") ||
-        data.startsWith("admin_group_") ||
-        data.startsWith("user_added_") ||
-        data.startsWith("user_rejected_") ||
-        data === "refresh_groups" ||
-        data === "back_to_admin_groups" ||
-        data === "cancel_setup"
-      ) {
+      if (this.isAdminCallback(data)) {
         return this.adminHandler.handleCallback(query);
       }
 
       // Route user callbacks
-      if (
-        data.startsWith("select_group_") ||
-        data.startsWith("confirm_payment_") ||
-        data === "back_to_groups"
-      ) {
+      if (this.isUserCallback(data)) {
         return this.userHandler.handleCallback(query);
       }
 
@@ -323,6 +330,37 @@ class SubscriptionBot {
         console.error("Error answering callback query:", answerError);
       }
     }
+  }
+
+  isAdminCallback(data) {
+    const adminCallbacks = [
+      "setup_group_",
+      "admin_group_",
+      "edit_config_",
+      "confirm_edit_",
+      "view_config_",
+      "user_added_",
+      "user_rejected_",
+      "refresh_groups",
+      "back_to_admin_groups",
+      "cancel_setup",
+    ];
+
+    return adminCallbacks.some(
+      (callback) => data === callback || data.startsWith(callback)
+    );
+  }
+
+  isUserCallback(data) {
+    const userCallbacks = [
+      "select_group_",
+      "confirm_payment_",
+      "back_to_groups",
+    ];
+
+    return userCallbacks.some(
+      (callback) => data === callback || data.startsWith(callback)
+    );
   }
 }
 

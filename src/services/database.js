@@ -35,27 +35,86 @@ class Database {
   }
 
   // Group operations
-  createGroup(groupId, adminId, groupName = null) {
-    if (!this.data.groups[groupId]) {
+  // Update the createGroup method to accept groupName parameter
+  async createGroup(groupId, adminId, groupName = null) {
+    try {
+      // Get group name from Telegram API if not provided
+      if (!groupName) {
+        try {
+          const chatInfo = await this.bot?.getChat?.(groupId);
+          groupName = chatInfo?.title || `Group ${groupId}`;
+        } catch (error) {
+          console.warn(`Could not get group name for ${groupId}:`, error);
+          groupName = `Group ${groupId}`;
+        }
+      }
+
+      if (!this.data.groups) {
+        this.data.groups = {};
+      }
+
       this.data.groups[groupId] = {
-        adminId,
-        groupName: groupName || `Group ${groupId}`,
-        config: {
-          bankName: "",
-          accountName: "",
-          accountNumber: "",
-          price: "",
-        },
+        groupId: groupId,
+        groupName: groupName, // Store the group name
+        adminId: adminId,
         isSetupComplete: false,
-        users: {},
         setupStep: null,
+        config: {},
+        users: {},
+        createdAt: Date.now(),
       };
+
+      await this.save();
+      console.log(
+        `✅ Created group "${groupName}" (${groupId}) with admin ${adminId}`
+      );
+    } catch (error) {
+      console.error("Create group error:", error);
+      throw error;
     }
-    return this.save();
   }
 
+  // Add method to reset group setup for editing configuration
+  async resetGroupSetup(groupId) {
+    try {
+      if (!this.data.groups?.[groupId]) {
+        throw new Error(`Group ${groupId} not found`);
+      }
+
+      const group = this.data.groups[groupId];
+
+      // Reset setup status but keep existing users and group info
+      group.isSetupComplete = false;
+      group.setupStep = null;
+      // Keep existing config, users, and other data
+
+      await this.save();
+      console.log(`🔄 Reset setup for group ${groupId}`);
+    } catch (error) {
+      console.error("Reset group setup error:", error);
+      throw error;
+    }
+  }
+
+  // getGroup(groupId) {
+  //   return this.data.groups[groupId] || null;
+  // }
+
+  // Enhanced getGroup method with fallback group name
   getGroup(groupId) {
-    return this.data.groups[groupId] || null;
+    try {
+      if (!this.data.groups?.[groupId]) return null;
+
+      const group = this.data.groups[groupId];
+
+      return {
+        ...group,
+        groupName: group.groupName || `Group ${groupId}`, // Ensure groupName is always present
+      };
+    } catch (error) {
+      console.error("Get group error:", error);
+      return null;
+    }
   }
 
   updateGroupConfig(groupId, config) {
@@ -66,11 +125,20 @@ class Database {
     }
   }
 
-  updateGroupName(groupId, groupName) {
-    const group = this.data.groups[groupId];
-    if (group) {
-      group.groupName = groupName;
-      return this.save();
+  // Method to update group name (useful if group title changes)
+  async updateGroupName(groupId, newGroupName) {
+    try {
+      if (!this.data.groups?.[groupId]) {
+        throw new Error(`Group ${groupId} not found`);
+      }
+
+      this.data.groups[groupId].groupName = newGroupName;
+      await this.save();
+
+      console.log(`📝 Updated group name for ${groupId} to "${newGroupName}"`);
+    } catch (error) {
+      console.error("Update group name error:", error);
+      throw error;
     }
   }
 
@@ -97,7 +165,12 @@ class Database {
     if (group) {
       const joinDate = new Date().toISOString();
       // For testing: 2 minutes, for production: 30 days
-      const expiryDate = new Date(Date.now() + (process.env.TEST_MODE === 'true' ? 2 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000)).toISOString();
+      const expiryDate = new Date(
+        Date.now() +
+          (process.env.TEST_MODE === "true"
+            ? 2 * 60 * 1000
+            : 30 * 24 * 60 * 60 * 1000)
+      ).toISOString();
 
       group.users[userId] = {
         username,
@@ -139,10 +212,26 @@ class Database {
   }
 
   // Find all groups by admin ID (MULTI-GROUP SUPPORT)
+  // getGroupsByAdmin(adminId) {
+  //   return Object.entries(this.data.groups)
+  //     .filter(([, group]) => group.adminId === adminId)
+  //     .map(([groupId, group]) => ({ groupId, ...group }));
+  // }
+
   getGroupsByAdmin(adminId) {
-    return Object.entries(this.data.groups)
-      .filter(([, group]) => group.adminId === adminId)
-      .map(([groupId, group]) => ({ groupId, ...group }));
+    try {
+      if (!this.data.groups || !adminId) return [];
+
+      return Object.values(this.data.groups)
+        .filter((group) => group?.adminId === adminId)
+        .map((group) => ({
+          ...group,
+          groupName: group.groupName || `Group ${group.groupId}`, // Ensure groupName is always present
+        }));
+    } catch (error) {
+      console.error("Get groups by admin error:", error);
+      return [];
+    }
   }
 
   // Find group by admin ID (backward compatibility - returns first group)
@@ -153,18 +242,53 @@ class Database {
 
   // Get all configured groups (for user selection)
   getConfiguredGroups() {
-    return Object.entries(this.data.groups)
-      .filter(([, group]) => group.isSetupComplete)
-      .map(([groupId, group]) => ({ groupId, ...group }));
+    try {
+      if (!this.data.groups) return [];
+
+      return Object.values(this.data.groups)
+        .filter((group) => group?.isSetupComplete && group?.config)
+        .map((group) => ({
+          ...group,
+          groupName: group.groupName || `Group ${group.groupId}`, // Ensure groupName is always present
+        }));
+    } catch (error) {
+      console.error("Get configured groups error:", error);
+      return [];
+    }
   }
 
   // Get groups by admin with setup status
+  // getAdminGroupsWithStatus(adminId) {
+  //   return this.getGroupsByAdmin(adminId).map((group) => ({
+  //     ...group,
+  //     userCount: Object.keys(group.users || {}).length,
+  //     activeUsers: Object.values(group.users || {}).filter(
+  //       (user) => user.isActive
+  //     ).length,
+  //   }));
+  // }
+  // Update getAdminGroupsWithStatus to include proper status and group names
   getAdminGroupsWithStatus(adminId) {
-    return this.getGroupsByAdmin(adminId).map(group => ({
-      ...group,
-      userCount: Object.keys(group.users || {}).length,
-      activeUsers: Object.values(group.users || {}).filter(user => user.isActive).length
-    }));
+    try {
+      if (!this.data.groups || !adminId) return [];
+
+      return Object.values(this.data.groups)
+        .filter((group) => group?.adminId === adminId)
+        .map((group) => {
+          const activeUsers = group.users
+            ? Object.values(group.users).filter((user) => user?.isActive).length
+            : 0;
+
+          return {
+            ...group,
+            groupName: group.groupName || `Group ${group.groupId}`,
+            activeUsers: activeUsers,
+          };
+        });
+    } catch (error) {
+      console.error("Get admin groups with status error:", error);
+      return [];
+    }
   }
 
   // Duplicate message prevention

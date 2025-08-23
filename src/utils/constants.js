@@ -90,8 +90,9 @@ Here are all the groups you manage:`,
     const userInfo = group.isSetupComplete
       ? `\n👥 ${group.activeUsers || 0} active users`
       : "";
-    return `**${group.groupName}**\nStatus: ${status}${userInfo}\nPrice: ${
-      group.config.price || "Not set"
+    const groupName = group.groupName || `Group ${group.groupId}`;
+    return `**${groupName}**\nStatus: ${status}${userInfo}\nPrice: ${
+      group.config?.price || "Not set"
     }`;
   },
 
@@ -124,18 +125,35 @@ Let's start with the bank name:`,
 
 Please add me to a group first, then try the setup command.`,
 
-  CURRENT_CONFIG: (group) => `📋 **Current Configuration - ${group.groupName}**
+  CURRENT_CONFIG: (group) => {
+    const groupName = group.groupName || `Group ${group.groupId}`;
+    return `📋 **Current Configuration - ${groupName}**
 
-🏦 Bank: ${group.config.bankName || "Not set"}
-👤 Account Name: ${group.config.accountName || "Not set"}
-🔢 Account Number: ${group.config.accountNumber || "Not set"}
-💰 Price: ${group.config.price || "Not set"}
+🏦 Bank: ${group.config?.bankName || "Not set"}
+👤 Account Name: ${group.config?.accountName || "Not set"}
+🔢 Account Number: ${group.config?.accountNumber || "Not set"}
+💰 Price: ${group.config?.price || "Not set"}
 
 👥 Active Users: ${
-    Object.values(group.users || {}).filter((u) => u.isActive).length
-  }
+      Object.values(group.users || {}).filter((u) => u?.isActive).length
+    }
 
-To update configuration, use /setup and select this group.`,
+To update configuration, use the "Edit Configuration" button below.`;
+  },
+
+  RECEIPT_RECEIVED: (groupName) => `📄 **Receipt received for ${groupName}!**
+
+Your payment receipt has been saved. Please click the "I have made payment" button to confirm your payment and notify the admin.`,
+
+  EDIT_CONFIG_START: (groupName) => `✏️ **Edit Configuration - ${groupName}**
+
+You can now update the payment details. The setup process will restart.
+
+Current configuration will be overwritten. Continue?`,
+
+  EDIT_CONFIG_CONFIRMED: `🔄 **Configuration Update Started**
+
+Please provide the updated information step by step.`,
 };
 
 const KEYBOARDS = {
@@ -155,24 +173,30 @@ const KEYBOARDS = {
 
   GROUP_SELECTION: (groups) => ({
     reply_markup: {
-      inline_keyboard: groups.map((group) => [
-        {
-          text: `💰 ${group.groupName} - ${group.config.price}`,
-          callback_data: `select_group_${group.groupId}`,
-        },
-      ]),
+      inline_keyboard: groups.map((group) => {
+        const groupName = group.groupName || `Group ${group.groupId}`;
+        return [
+          {
+            text: `💰 ${groupName} - ${group.config?.price || 'N/A'}`,
+            callback_data: `select_group_${group.groupId}`,
+          },
+        ];
+      }),
     },
   }),
 
   ADMIN_GROUP_LIST: (groups) => ({
     reply_markup: {
       inline_keyboard: [
-        ...groups.map((group) => [
-          {
-            text: `${group.isSetupComplete ? "✅" : "⚠️"} ${group.groupName}`,
-            callback_data: `admin_group_${group.groupId}`,
-          },
-        ]),
+        ...groups.map((group) => {
+          const groupName = group.groupName || `Group ${group.groupId}`;
+          return [
+            {
+              text: `${group.isSetupComplete ? "✅" : "⚠️"} ${groupName}`,
+              callback_data: `admin_group_${group.groupId}`,
+            },
+          ];
+        }),
         [{ text: "🔄 Refresh", callback_data: "refresh_groups" }],
       ],
     },
@@ -183,8 +207,14 @@ const KEYBOARDS = {
       inline_keyboard: [
         [
           {
-            text: "⚙️ Configure Group",
-            callback_data: `setup_group_${groupId}`,
+            text: "✏️ Edit Configuration",
+            callback_data: `edit_config_${groupId}`,
+          },
+        ],
+        [
+          {
+            text: "⚙️ View Configuration",
+            callback_data: `view_config_${groupId}`,
           },
         ],
         [{ text: "🔙 Back to Groups", callback_data: "back_to_admin_groups" }],
@@ -195,12 +225,15 @@ const KEYBOARDS = {
   SETUP_GROUP_SELECTION: (groups) => ({
     reply_markup: {
       inline_keyboard: [
-        ...groups.map((group) => [
-          {
-            text: `${group.isSetupComplete ? "✅" : "⚠️"} ${group.groupName}`,
-            callback_data: `setup_group_${group.groupId}`,
-          },
-        ]),
+        ...groups.map((group) => {
+          const groupName = group.groupName || `Group ${group.groupId}`;
+          return [
+            {
+              text: `${group.isSetupComplete ? "✅" : "⚠️"} ${groupName}`,
+              callback_data: `setup_group_${group.groupId}`,
+            },
+          ];
+        }),
         [{ text: "🔙 Cancel", callback_data: "cancel_setup" }],
       ],
     },
@@ -232,6 +265,20 @@ const KEYBOARDS = {
       ],
     },
   },
+
+  EDIT_CONFIG_CONFIRM: (groupId) => ({
+    reply_markup: {
+      inline_keyboard: [
+        [
+          {
+            text: "✅ Yes, Update Configuration",
+            callback_data: `confirm_edit_${groupId}`,
+          },
+        ],
+        [{ text: "❌ Cancel", callback_data: "back_to_admin_groups" }],
+      ],
+    },
+  }),
 };
 
 const SETUP_STEPS = {
