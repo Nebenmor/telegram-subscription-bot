@@ -8,7 +8,7 @@
     "dev": "nodemon src/bot.js"
   },
   "keywords": ["telegram", "bot", "subscription", "webhook"],
-  "author": "Your Name",
+  "author": "Anthony Nebenmor",
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
