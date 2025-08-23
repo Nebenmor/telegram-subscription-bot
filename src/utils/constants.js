@@ -177,7 +177,7 @@ const KEYBOARDS = {
         const groupName = group.groupName || `Group ${group.groupId}`;
         return [
           {
-            text: `💰 ${groupName} - ${group.config?.price || 'N/A'}`,
+            text: `💰 ${groupName} - ${group.config?.price || "N/A"}`,
             callback_data: `select_group_${group.groupId}`,
           },
         ];
@@ -197,7 +197,6 @@ const KEYBOARDS = {
             },
           ];
         }),
-        [{ text: "🔄 Refresh", callback_data: "refresh_groups" }],
       ],
     },
   }),
@@ -209,12 +208,6 @@ const KEYBOARDS = {
           {
             text: "✏️ Edit Configuration",
             callback_data: `edit_config_${groupId}`,
-          },
-        ],
-        [
-          {
-            text: "⚙️ View Configuration",
-            callback_data: `view_config_${groupId}`,
           },
         ],
         [{ text: "🔙 Back to Groups", callback_data: "back_to_admin_groups" }],

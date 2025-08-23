@@ -16,7 +16,8 @@ class Database {
       try {
         const data = await fs.readFile(DB_PATH, "utf8");
         this.data = JSON.parse(data);
-      } catch (error) {
+      } catch (readError) {
+        console.warn('Database file not found or invalid, creating new database:', readError.message);
         this.data = { groups: {} };
         await this.save();
       }
@@ -31,6 +32,7 @@ class Database {
       await fs.writeFile(DB_PATH, JSON.stringify(this.data, null, 2));
     } catch (error) {
       console.error("Database save error:", error);
+      throw error;
     }
   }
 
@@ -43,8 +45,8 @@ class Database {
         try {
           const chatInfo = await this.bot?.getChat?.(groupId);
           groupName = chatInfo?.title || `Group ${groupId}`;
-        } catch (error) {
-          console.warn(`Could not get group name for ${groupId}:`, error);
+        } catch (chatError) {
+          console.warn(`Could not get group name for ${groupId}:`, chatError.message);
           groupName = `Group ${groupId}`;
         }
       }
@@ -95,10 +97,6 @@ class Database {
       throw error;
     }
   }
-
-  // getGroup(groupId) {
-  //   return this.data.groups[groupId] || null;
-  // }
 
   // Enhanced getGroup method with fallback group name
   getGroup(groupId) {
@@ -212,12 +210,7 @@ class Database {
   }
 
   // Find all groups by admin ID (MULTI-GROUP SUPPORT)
-  // getGroupsByAdmin(adminId) {
-  //   return Object.entries(this.data.groups)
-  //     .filter(([, group]) => group.adminId === adminId)
-  //     .map(([groupId, group]) => ({ groupId, ...group }));
-  // }
-
+  // Update getGroupsByAdmin to include group names
   getGroupsByAdmin(adminId) {
     try {
       if (!this.data.groups || !adminId) return [];
@@ -257,16 +250,6 @@ class Database {
     }
   }
 
-  // Get groups by admin with setup status
-  // getAdminGroupsWithStatus(adminId) {
-  //   return this.getGroupsByAdmin(adminId).map((group) => ({
-  //     ...group,
-  //     userCount: Object.keys(group.users || {}).length,
-  //     activeUsers: Object.values(group.users || {}).filter(
-  //       (user) => user.isActive
-  //     ).length,
-  //   }));
-  // }
   // Update getAdminGroupsWithStatus to include proper status and group names
   getAdminGroupsWithStatus(adminId) {
     try {
